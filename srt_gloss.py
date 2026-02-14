@@ -349,8 +349,9 @@ def process_line(line):
     for mrph in result.mrph_list():  # Iterate through morphemes
         surface = mrph.midasi
         
-        # Skip pure punctuation (optional, keeps tables clean)
-        if re.fullmatch(r'[、。！？「」]', surface):
+        # Skip pure punctuation, noise, and whitespace-like morphemes
+        # Match: Japanese punctuation, backslashes, dashes, tildes, dots, and whitespace
+        if re.fullmatch(r'[\s、。！？「」\\…\-_～・]+', surface):
             continue
 
         # Get reading (handles kanji conversion automatically)
