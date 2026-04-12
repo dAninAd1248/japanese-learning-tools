@@ -7,7 +7,7 @@ retrieves readings (with kanji converted to hiragana, katakana preserved), and g
 glosses for each token from Yomitan API. Outputs a Markdown file with gloss tables.
 
 Requirements:
-    pip install pysrt requests sudachipy sudachidict-core
+    pip install pysrt requests sudachipy sudachidict-core jaconv
     Yomitan API server must be running (http://127.0.0.1:19633)
 
 Usage:
@@ -17,71 +17,50 @@ Usage:
 import sys
 import re
 import time
+import json
+from pathlib import Path
 from typing import List, Dict, Tuple, Any
 
 import pysrt
 import requests
 from requests.exceptions import Timeout, ConnectTimeout, ReadTimeout
 from sudachipy import dictionary, tokenizer
+import jaconv
 
 # Yomitan API Configuration
 YOMITAN_API_URL = "http://127.0.0.1:19633"
 YOMITAN_API_TIMEOUT = 10
 
-# Gloss mapping for common particles
-PARTICLE_GLOSS = {
-    "が": "SUBJ", "を": "OBJ", "に": "LOC/ADV/DAT", "へ": "DIR", "と": "QUOT/AND",
-    "で": "LOC/INST", "から": "SOURCE", "まで": "UNTIL", "より": "THAN/FROM",
-    "は": "TOP", "も": "ALSO", "こそ": "EMPH", "さえ": "EVEN", "でも": "EVEN/OR",
-    "しか": "ONLY", "か": "Q", "ね": "FP-CONFIRM", "よ": "FP-ASSERT",
-    "な": "FP-PROHIB/EMPH", "ぞ": "FP-EMPH", "ぜ": "FP-EMPH", "わ": "FP-EMPH",
-    "さ": "FP-LIGHT", "ものか": "FP-RHET", "て": "GER", "ながら": "WHILE",
-    "し": "AND/REASON", "ので": "BECAUSE", "のに": "ALTHOUGH", "ば": "COND",
-    "たら": "IF", "ても": "EVEN-IF", "くらい": "ABOUT", "ごろ": "AROUND",
-    "など": "ETC", "ばかり": "ONLY/JUST", "だけ": "ONLY", "ほど": "EXTENT", "ずつ": "EACH",
-}
 
-# Auxiliary verbs and copula
-AUX_GLOSS = {
-    "だ": "COP", "です": "COP-POL", "である": "COP-FORMAL", "ます": "POL",
-    "たい": "WANT", "ない": "NEG", "ぬ": "NEG-CLASS", "れる": "PASS/POT",
-    "られる": "PASS/POT/RESP", "せる": "CAUS", "させる": "CAUS", "そう": "SEEM",
-    "よう": "SEEM/VOL", "みたい": "SEEM",
-}
+def load_gloss_mappings(json_path: str) -> Tuple[Dict[str, str], set]:
+    """Load gloss mappings and sound effects from JSON file"""
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        glosses = data.get('glosses', {})
+        sound_effects = set(data.get('sound_effects', []))
+        return glosses, sound_effects
+    except FileNotFoundError:
+        print(f"Error: Gloss mappings file not found: {json_path}", file=sys.stderr)
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON in {json_path}: {e}", file=sys.stderr)
+        sys.exit(1)
 
-# Interjections and filler words
-INTERJECTION_GLOSS = {
-    "えっと": "FILLER", "あのう": "FILLER", "あの": "DEM", "その": "DEM",
-    "この": "DEM", "え": "INTJ", "お": "INTJ", "ええ": "INTJ", "ああ": "INTJ",
-}
 
-# Special characters
-SPECIAL_CHAR_GLOSS = {
-    "\uFF5E": "~",  # Full-width prolonged sound mark
-    "ー": "~",      # Katakana prolonged sound mark
-}
+# Load mappings from JSON file (same directory as script)
+_script_dir = Path(__file__).parent
+_glosses, SOUND_EFFECTS = load_gloss_mappings(str(_script_dir / "gloss_mappings.json"))
 
-# Sound effects
-SOUND_EFFECTS = {
-    "ハハハ", "ハハ", "ウハハ", "フフフ", "クスクス", "ププ", "プププ", "クク", "クククク",
-    "ウウッ", "ウーン", "ウーッ", "ズズズ", "ズズズッ", "ギギギ", "ドドド", "ドドドド",
-    "バタバタ", "パァン", "ドーン", "バーン", "キーン", "ビーン", "ギャー", "ギャアア",
-    "ガアア", "えっ", "あっ", "おっ",
-}
-
-# Pre-populate cache
-gloss_cache = {}
-gloss_cache.update(INTERJECTION_GLOSS)
-gloss_cache.update(AUX_GLOSS)
-gloss_cache.update(PARTICLE_GLOSS)
-gloss_cache.update(SPECIAL_CHAR_GLOSS)
+# Pre-populate cache with loaded glosses
+gloss_cache = _glosses.copy()
 
 # ===== PRIORITY CONFIGURATION =====
 # Modify these to change priority order easily
 
 # Priority for selecting gloss term (normalized, dictionary_form, or surface)
 # Order matters: first match wins
-GLOSS_TERM_PRIORITY = ['dictionary_form', 'surface', 'normalized']
+GLOSS_TERM_PRIORITY = ['normalized', 'dictionary_form', 'surface']
 
 # Priority for selecting reading display
 # Each tuple is (condition_name, parameter)
@@ -149,14 +128,7 @@ def is_katakana(word: str) -> bool:
 
 def convert_katakana_to_hiragana(katakana: str) -> str:
     """Convert katakana to hiragana"""
-    result = []
-    for char in katakana:
-        code = ord(char)
-        if 0x30A0 <= code <= 0x30FF:
-            result.append(chr(code - 0x60))
-        else:
-            result.append(char)
-    return ''.join(result)
+    return jaconv.kata2hira(katakana)
 
 
 def is_likely_sound_effect(word: str) -> bool:
@@ -178,9 +150,6 @@ def is_likely_sound_effect(word: str) -> bool:
                         return True
                     if len(base) == 2 and base[1] == 'ッ' and base[0] in ['ハ', 'プ', 'ク', 'ド', 'バ', 'ギ', 'ピ', 'フ', 'ウ', 'ズ', 'ブ', 'グ', 'ポ', 'パ', 'ペ', 'ボ']:
                         return True
-    
-    if word.endswith(('ッ', 'ン', 'ルッ', 'ーン', 'ーッ')) and len(word) <= 5:
-        return True
     
     return False
 
@@ -221,11 +190,12 @@ def get_gloss(word: str) -> str:
     
     except (Timeout, ConnectTimeout, ReadTimeout):
         print(f"[Warning] Timeout fetching gloss for '{word}'", file=sys.stderr)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[Warning] Error fetching gloss for '{word}': {e}", file=sys.stderr)
     
-    gloss_cache[word] = "?"
-    return "?"
+    print(f"[Debug] No gloss found for '{word}' - cache has {len(gloss_cache)} entries", file=sys.stderr)
+    gloss_cache[word] = ""
+    return ""
 
 
 def _extract_glosses(content: Any, max_depth: int = 10) -> List[str]:
@@ -339,23 +309,24 @@ def select_reading_display(surface: str, reading: str, furigana_map: Dict[str, s
     return reading if reading else surface
 
 
-def process_line(line: str) -> Tuple[List[str], List[str]]:
-    """Tokenize line with Sudachi and return readings and glosses"""
+def process_line(line: str) -> Tuple[List[str], List[str], List[str]]:
+    """Tokenize line with Sudachi and return surface forms, readings and glosses"""
     furigana_map = extract_furigana(line)
     tokenization_text = remove_speaker_labels(line)
     
     # Remove furigana annotations and other noise
     tokenization_text = re.sub(r'[\(（][ぁ-ん゙ァ-ヴーa-zA-Z]*[\)）]', '', tokenization_text)
-    tokenization_text = re.sub(r'[\[\]【】♪♫♬]', '', tokenization_text)
+    tokenization_text = re.sub(r'[\[\]【】♪♫♬—]', '', tokenization_text)
     tokenization_text = re.sub(r'　', ' ', tokenization_text)
     
     if not tokenization_text.strip():
-        return [], []
+        return [], [], []
     
     tokens = sudachi.get_tokens_with_details(tokenization_text)
     if not tokens:
-        return [], []
+        return [], [], []
     
+    surfaces = []
     readings = []
     glosses = []
     
@@ -372,6 +343,8 @@ def process_line(line: str) -> Tuple[List[str], List[str]]:
         if re.fullmatch(r'[\s、。！？\\…\-_・]+', surface):
             continue
         
+        surfaces.append(surface)
+        
         # Select reading display based on priority configuration
         display_reading = select_reading_display(surface, reading, furigana_map)
         readings.append(display_reading)
@@ -381,7 +354,7 @@ def process_line(line: str) -> Tuple[List[str], List[str]]:
         gloss = get_gloss(gloss_term)
         glosses.append(gloss)
     
-    return readings, glosses
+    return surfaces, readings, glosses
 
 
 def format_timestamp(ts) -> str:
@@ -410,31 +383,38 @@ def main(srt_path: str, md_path: str):
                 if not line.strip():
                     continue
                 
-                readings, glosses = process_line(line)
+                surfaces, readings, glosses = process_line(line)
                 
-                if not readings or not glosses:
+                if not surfaces or not readings or not glosses:
                     continue
                 
                 # Write original line
                 out.write(f"{line}\n\n")
                 
                 # Build markdown table
-                header = "| " + " | ".join(readings) + " |"
-                separator = "|" + "|".join([" --- "] * len(readings)) + "|"
+                # Use surface form if gloss is empty, otherwise use reading form
+                first_row = []
+                for i, gloss in enumerate(glosses):
+                    if gloss == "":
+                        first_row.append(surfaces[i])
+                    else:
+                        first_row.append(readings[i])
+                
+                header = "| " + " | ".join(first_row) + " |"
+                separator = "|" + "|".join([" --- "] * len(first_row)) + "|"
                 gloss_row = "| " + " | ".join(glosses) + " |"
                 
                 out.write(header + "\n")
                 out.write(separator + "\n")
                 out.write(gloss_row + "\n\n")
-                
-                # Avoid hammering API
-                time.sleep(0.05)
             
             out.write("\n")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python srt_gloss.py <input.srt> <output.md>")
-        sys.exit(1)
-    main(sys.argv[1], sys.argv[2])
+    process_line("ダメに決まってるでしょ")
+    
+    # if len(sys.argv) != 3:
+    #     print("Usage: python srt_gloss.py <input.srt> <output.md>")
+    #     sys.exit(1)
+    # main(sys.argv[1], sys.argv[2])
