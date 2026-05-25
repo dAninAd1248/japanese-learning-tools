@@ -66,8 +66,8 @@ GLOSS_TERM_PRIORITY = ['normalized', 'dictionary_form', 'surface']
 # Each tuple is (condition_name, parameter)
 # Conditions: 'is_katakana', 'has_furigana', 'has_kanji', 'default'
 READING_PRIORITY = [
-    ('is_katakana', 'reading'),        # If original surface is katakana, keep reading as-is
     ('has_furigana', 'furigana'),      # If explicit furigana annotation exists, use it
+    ('is_katakana', 'reading'),        # If original surface is katakana, keep reading as-is
     ('default', 'hiragana'),           # Otherwise, convert reading to hiragana
 ]
 # ===== END PRIORITY CONFIGURATION =====
@@ -285,15 +285,18 @@ def select_gloss_term(surface: str, normalized: str, dictionary_form: str) -> st
     return surface
 
 
-def select_reading_display(surface: str, reading: str, furigana_map: Dict[str, str]) -> str:
+def select_reading_display(surface: str, reading: str, furigana_map: Dict[str, str], token_furigana: str = None) -> str:
     """Select reading display based on READING_PRIORITY"""
     for condition, param in READING_PRIORITY:
-        if condition == 'is_katakana' and is_katakana(surface):
+        if condition == 'has_furigana' and token_furigana:
+            # Explicit furigana annotation from token or map
+            return token_furigana
+        elif condition == 'has_furigana' and surface in furigana_map:
+            # Explicit furigana annotation from map
+            return furigana_map[surface]
+        elif condition == 'is_katakana' and is_katakana(surface):
             # Original is katakana - keep reading as-is
             return reading
-        elif condition == 'has_furigana' and surface in furigana_map:
-            # Explicit furigana annotation
-            return furigana_map[surface]
         elif condition == 'default':
             if param == 'hiragana':
                 # Convert katakana reading to hiragana
@@ -307,6 +310,41 @@ def select_reading_display(surface: str, reading: str, furigana_map: Dict[str, s
     
     # Fallback
     return reading if reading else surface
+
+
+def reconstruct_furigana_compounds(tokens: List[Dict[str, Any]], furigana_map: Dict[str, str]) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    """Reconstruct compound words that match furigana annotations.
+    
+    Returns:
+        - Updated token list with reconstructed compounds
+        - Mapping of compound token indices to skip (merged into previous compound)
+    """
+    reconstructed = []
+    skip_indices = set()
+    i = 0
+    
+    while i < len(tokens):
+        # Try to match longest compound first
+        matched = False
+        for compound_len in range(min(5, len(tokens) - i), 0, -1):  # Try up to 5-token compounds
+            compound_surface = ''.join(tokens[j]['surface'] for j in range(i, i + compound_len))
+            if compound_surface in furigana_map:
+                # Found a matching compound
+                merged_token = tokens[i].copy()
+                merged_token['surface'] = compound_surface
+                merged_token['furigana'] = furigana_map[compound_surface]
+                reconstructed.append(merged_token)
+                for j in range(i + 1, i + compound_len):
+                    skip_indices.add(j)
+                i += compound_len
+                matched = True
+                break
+        
+        if not matched:
+            reconstructed.append(tokens[i])
+            i += 1
+    
+    return reconstructed, skip_indices
 
 
 def process_line(line: str) -> Tuple[List[str], List[str], List[str]]:
@@ -326,6 +364,9 @@ def process_line(line: str) -> Tuple[List[str], List[str], List[str]]:
     if not tokens:
         return [], [], []
     
+    # Reconstruct compound words that have furigana annotations
+    tokens, _ = reconstruct_furigana_compounds(tokens, furigana_map)
+    
     surfaces = []
     readings = []
     glosses = []
@@ -335,6 +376,7 @@ def process_line(line: str) -> Tuple[List[str], List[str], List[str]]:
         reading = token['reading']
         normalized = token['normalized']
         dictionary_form = token['dictionary_form']
+        token_furigana = token.get('furigana')  # Added by reconstruct_furigana_compounds
         
         if not surface:
             continue
@@ -346,7 +388,7 @@ def process_line(line: str) -> Tuple[List[str], List[str], List[str]]:
         surfaces.append(surface)
         
         # Select reading display based on priority configuration
-        display_reading = select_reading_display(surface, reading, furigana_map)
+        display_reading = select_reading_display(surface, reading, furigana_map, token_furigana)
         readings.append(display_reading)
         
         # Select gloss term based on priority configuration
@@ -411,10 +453,8 @@ def main(srt_path: str, md_path: str):
             out.write("\n")
 
 
-if __name__ == "__main__":
-    process_line("ダメに決まってるでしょ")
-    
-    # if len(sys.argv) != 3:
-    #     print("Usage: python srt_gloss.py <input.srt> <output.md>")
-    #     sys.exit(1)
-    # main(sys.argv[1], sys.argv[2])
+if __name__ == "__main__":    
+    if len(sys.argv) != 3:
+        print("Usage: python srt_gloss.py <input.srt> <output.md>")
+        sys.exit(1)
+    main(sys.argv[1], sys.argv[2])

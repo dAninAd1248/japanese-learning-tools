@@ -7,6 +7,8 @@ Front: The reading (first row of table, with | and spaces removed)
 Back: HTML table with each word and its gloss
 """
 
+# TODO add audio column (empty)
+
 import re
 import csv
 import sys
@@ -117,9 +119,9 @@ def merge_tables_to_card(srt_index, tables, timestamp_line):
         reading_row = table[0]
         gloss_row = table[-1]
         
-        # Check if second row is separator (all ---)
+        # Check if second row is separator (all dashes)
         separator_row = table[1]
-        is_separator = all('---' in cell or cell.strip() == '' for cell in separator_row)
+        is_separator = all(re.match(r'^-+$', cell.strip()) or cell.strip() == '' for cell in separator_row)
         
         if not is_separator:
             continue
@@ -175,9 +177,9 @@ def create_card(srt_index, table, timestamp_line):
     # Last row is the gloss/meaning
     gloss_row = table[-1]
     
-    # Check if second row is separator (all ---)
+    # Check if second row is separator (all dashes)
     separator_row = table[1]
-    is_separator = all('---' in cell or cell.strip() == '' for cell in separator_row)
+    is_separator = all(re.match(r'^-+$', cell.strip()) or cell.strip() == '' for cell in separator_row)
     
     if not is_separator:
         # If not a proper table, skip
