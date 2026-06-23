@@ -108,9 +108,9 @@ def merge_tables_to_card(srt_index, tables, timestamp_line):
     time_match = re.search(r'(\d{2}:\d{2}\s*–\s*\d{2}:\d{2})', timestamp_line)
     time_str = time_match.group(1) if time_match else ""
     
-    # Merge all readings and glosses
-    all_readings = []
-    all_glosses = []
+    # Merge all readings and glosses, grouped by table (line)
+    line_readings = []   # list of lists, one per table/line
+    line_glosses = []    # parallel list of lists
     
     for table in tables:
         if len(table) < 3:
@@ -126,25 +126,33 @@ def merge_tables_to_card(srt_index, tables, timestamp_line):
         if not is_separator:
             continue
         
-        # Add to merged lists
+        # Collect readings and glosses for this line
+        line_readings_group = []
+        line_glosses_group = []
         for reading, gloss in zip(reading_row, gloss_row):
             reading = reading.strip()
             gloss = gloss.strip()
             if reading and gloss:  # Only add non-empty cells
-                all_readings.append(reading)
-                all_glosses.append(gloss)
+                line_readings_group.append(reading)
+                line_glosses_group.append(gloss)
+        
+        if line_readings_group:
+            line_readings.append(line_readings_group)
+            line_glosses.append(line_glosses_group)
     
-    if not all_readings:
+    if not line_readings:
         return None
     
-    # Front: combine all readings, remove pipes and spaces
-    front = ''.join(all_readings).replace('|', '').replace(' ', '')
+    # Front: join readings within each line, then lines with newline
+    front_lines = [''.join(group).replace('|', '').replace(' ', '') for group in line_readings]
+    front = '<br>'.join(front_lines)
     
     # Back: HTML table with reading | gloss pairs
     back_html = "<table style='border-collapse: collapse;'>"
-    for reading, gloss in zip(all_readings, all_glosses):
-        back_html += f"<tr><td style='border: 1px solid black; padding: 5px;'><b>{reading}</b></td>"
-        back_html += f"<td style='border: 1px solid black; padding: 5px;'>{gloss}</td></tr>"
+    for line_group, gloss_group in zip(line_readings, line_glosses):
+        for reading, gloss in zip(line_group, gloss_group):
+            back_html += f"<tr><td style='border: 1px solid black; padding: 5px;'><b>{reading}</b></td>"
+            back_html += f"<td style='border: 1px solid black; padding: 5px;'>{gloss}</td></tr>"
     back_html += "</table>"
     
     return {
