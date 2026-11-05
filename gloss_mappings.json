@@ -1,6 +1,6 @@
 {
   "glosses": {
-    "が": "SUBJ",
+    "が": "SUBJ/BUT",
     "を": "OBJ",
     "の": "POSS/NOUN-LINK/Q",
     "に": "AT/TO/FOR",
@@ -51,14 +51,14 @@
     "せる": "MAKE/LET",
     "させる": "MAKE/LET",
     "そう": "SEEM",
-    "よう": "SEEM/LET'S",
+    "よう": "SEEM/VOLITIONAL",
     "みたい": "LIKE",
     "えっと": "UMM",
     "あのう": "UMM",
     "あの": "THAT",
     "その": "THAT",
     "この": "THIS",
-    "え": "FILLER?",
+    "え": "FILLER",
     "ええ": "FILLER",
     "ああ": "FILLER",
     "ええと": "FILLER",
@@ -67,6 +67,8 @@
     "「": "",
     "」": "",
     "—": "",
+    "〜": "",
+    "…": "",
     "げた箱": "shoe box",
     "バカヤロウ": "idiot, fool",
     "はーい": "okay, yes",
@@ -79,7 +81,8 @@
     "グー": "rock (じゃんけん)",
     "チョキ": "scissors (じゃんけん)",
     "パー": "paper (じゃんけん)",
-    "グッチョパッ": "rock-scissors-paper"
+    "グッチョパッ": "rock-scissors-paper",
+    "御前": "you (familiar, masculine)"
   },
   "sound_effects": [
     "ハハハ",

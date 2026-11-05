@@ -151,7 +151,7 @@ def merge_tables_to_card(srt_index, tables, timestamp_line):
     back_html = "<table style='border-collapse: collapse;'>"
     for line_group, gloss_group in zip(line_readings, line_glosses):
         for reading, gloss in zip(line_group, gloss_group):
-            back_html += f"<tr><td style='border: 1px solid black; padding: 5px;'><b>{reading}</b></td>"
+            back_html += f"<tr><td style='border: 1px solid black; padding: 5px;'>{reading}</td>"
             back_html += f"<td style='border: 1px solid black; padding: 5px;'>{gloss}</td></tr>"
     back_html += "</table>"
     
@@ -205,7 +205,7 @@ def create_card(srt_index, table, timestamp_line):
         reading = reading.strip()
         gloss = gloss.strip()
         if reading and gloss:  # Only add non-empty cells
-            back_html += f"<tr><td style='border: 1px solid black; padding: 5px;'><b>{reading}</b></td>"
+            back_html += f"<tr><td style='border: 1px solid black; padding: 5px;'>{reading}</td>"
             back_html += f"<td style='border: 1px solid black; padding: 5px;'>{gloss}</td></tr>"
     back_html += "</table>"
     
